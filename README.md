@@ -53,7 +53,7 @@ These results suggest that the obesity paradox may not be uniform across critica
 
 ## Visualization
 
-![Subgroup-specific adjusted risk differences](figures/subgroup_effects.png)
+![Subgroup-specific adjusted risk differences](subgroup_effects.png)
 
 The forest plot displays estimated adjusted risk differences and 95% confidence intervals across patient subgroups.
 
@@ -63,15 +63,13 @@ The forest plot displays estimated adjusted risk differences and 95% confidence 
 
 ## Repository Structure
 
+```text
 icu-obesity-causal-inference/
 │
 ├── README.md
 ├── icu_obesity_analysis.Rmd
-├── figures/
-│   └── subgroup_effects.png
-├── report/
-│   └── final_report.pdf
-└── .gitignore
+└── subgroup_effects.png
+```
 
 ## Limitations
 
@@ -81,5 +79,5 @@ Some subgroup estimates also have relatively wide confidence intervals due to sm
 
 ## Author
 
-Mian Xie
+**Mian Xie** 
 UCLA Statistics & Data Science
