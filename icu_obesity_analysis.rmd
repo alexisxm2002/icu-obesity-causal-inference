@@ -1,0 +1,179 @@
+---
+title: "MIMIC_DS_CODE"
+author: "Mian Xie"
+date: "2026-03-20"
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r}
+library(dplyr)
+library(ggplot2)
+
+mimic <- read.csv("~/mimic_final.csv")
+head(mimic)
+
+mimic <- mimic %>%
+  mutate(
+    obese = as.integer(obese),
+    mortality = as.integer(mortality),
+    age_group = factor(age_group, levels = c("<40", "40-64", "65+")),
+    sex = factor(sex, levels = c("F", "M")),
+    severity_group = factor(severity_group, levels = c("Low", "Medium", "High")),
+    icu_type_final = factor(icu_type_final)
+  )
+
+str(mimic)
+summary(mimic)
+
+
+table1_counts <- mimic %>%
+  group_by(obese) %>%
+  summarise(
+    n = n(),
+    mortality_rate = mean(mortality),
+    .groups = "drop"
+  )
+
+table1_age <- prop.table(table(mimic$obese, mimic$age_group), margin = 1)
+table1_sex <- prop.table(table(mimic$obese, mimic$sex), margin = 1)
+table1_severity <- prop.table(table(mimic$obese, mimic$severity_group), margin = 1)
+table1_icu <- prop.table(table(mimic$obese, mimic$icu_type_final), margin = 1)
+
+table1_counts
+table1_age
+table1_sex
+table1_severity
+table1_icu
+```
+
+
+```{r}
+fit_age <- glm(
+  mortality ~ obese * age_group + sex + severity_group + icu_type_final,
+  family = binomial(),
+  data = mimic
+)
+
+summary(fit_age)
+
+standardized_effects <- function(data, modifier, adjust_vars) {
+  form <- as.formula(
+    paste("mortality ~ obese *", modifier, "+", paste(adjust_vars, collapse = " + "))
+  )
+  
+  fit <- glm(form, family = binomial(), data = data)
+  
+  levs <- levels(data[[modifier]])
+  out_list <- vector("list", length(levs))
+  
+  for (i in seq_along(levs)) {
+    v <- levs[i]
+    subdata <- data[data[[modifier]] == v, , drop = FALSE]
+    
+    d1 <- subdata
+    d0 <- subdata
+    d1$obese <- 1
+    d0$obese <- 0
+    
+    risk1 <- mean(predict(fit, newdata = d1, type = "response"))
+    risk0 <- mean(predict(fit, newdata = d0, type = "response"))
+    
+    out_list[[i]] <- data.frame(
+      modifier = modifier,
+      level = v,
+      risk_obese_1 = risk1,
+      risk_obese_0 = risk0,
+      risk_diff = risk1 - risk0
+    )
+  }
+  
+  do.call(rbind, out_list)
+}
+
+
+bootstrap_standardized_effects <- function(data, modifier, adjust_vars, B = 200, seed = 123) {
+  set.seed(seed)
+  
+  base_res <- standardized_effects(data, modifier, adjust_vars)
+  levs <- base_res$level
+  
+  boot_mat <- matrix(NA, nrow = B, ncol = length(levs))
+  colnames(boot_mat) <- levs
+  
+  n <- nrow(data)
+  
+  for (b in 1:B) {
+    idx <- sample(seq_len(n), size = n, replace = TRUE)
+    boot_data <- data[idx, , drop = FALSE]
+    
+    tmp <- try(
+      standardized_effects(boot_data, modifier, adjust_vars),
+      silent = TRUE
+    )
+    
+    if (!inherits(tmp, "try-error")) {
+      boot_mat[b, ] <- tmp$risk_diff
+    }
+  }
+  
+  ci_low <- apply(boot_mat, 2, quantile, probs = 0.025, na.rm = TRUE)
+  ci_high <- apply(boot_mat, 2, quantile, probs = 0.975, na.rm = TRUE)
+  
+  base_res$ci_low <- ci_low[base_res$level]
+  base_res$ci_high <- ci_high[base_res$level]
+  
+  base_res
+}
+
+
+results_age <- bootstrap_standardized_effects(
+  data = mimic,
+  modifier = "age_group",
+  adjust_vars = c("sex", "severity_group", "icu_type_final"),
+  B = 200
+)
+
+results_sex <- bootstrap_standardized_effects(
+  data = mimic,
+  modifier = "sex",
+  adjust_vars = c("age_group", "severity_group", "icu_type_final"),
+  B = 200
+)
+
+results_severity <- bootstrap_standardized_effects(
+  data = mimic,
+  modifier = "severity_group",
+  adjust_vars = c("age_group", "sex", "icu_type_final"),
+  B = 200
+)
+
+results_icu <- bootstrap_standardized_effects(
+  data = mimic,
+  modifier = "icu_type_final",
+  adjust_vars = c("age_group", "sex", "severity_group"),
+  B = 200
+)
+all_results <- bind_rows(
+  results_age,
+  results_sex,
+  results_severity,
+  results_icu
+)
+
+all_results
+
+all_results$label <- paste(all_results$modifier, all_results$level, sep = ": ")
+
+ggplot(all_results, aes(x = risk_diff, y = reorder(label, risk_diff))) +
+  geom_point(size = 2.5) +
+  geom_errorbarh(aes(xmin = ci_low, xmax = ci_high), height = 0.2) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(
+    title = "Subgroup-specific adjusted risk differences",
+    x = "Adjusted risk difference",
+    y = ""
+  ) +
+  theme_minimal()
+```
+
